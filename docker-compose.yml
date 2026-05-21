@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.26.0-community
+    container_name: neo4j_rag
+    ports:
+      - "7474:7474" # HTTP/Browser interface
+      - "7687:7687" # Bolt protocol
+    user: "1000:1000"
+    volumes:
+      - ./storage/neo4j/data:/data
+      - ./storage/neo4j/logs:/logs
+      - ./storage/neo4j/import:/var/lib/neo4j/import
+      - ./storage/neo4j/plugins:/plugins
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+

@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTE: lightrag is NOT installed from PyPI.
+# It must be cloned locally and installed as an editable package:
+#
+#   git clone https://github.com/HKUDS/LightRAG.git
+#   pip install -e ./LightRAG
+#
+# Do NOT add lightrag here — pip will override the editable install
+# and the local import paths throughout this project will break.
+# ─────────────────────────────────────────────────────────────────────────────
+
+raganything
+sentence-transformers
+FlagEmbedding
+python-dotenv
+httpx
+
+# Optional: enables PDF and DOCX parsing in RAGAnything
+# mineru
+
+# ── Visualisation (viz/graph_viz.py) ─────────────────────────────────────
+networkx
+pyvis
+streamlit
+neo4j

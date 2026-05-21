@@ -1,0 +1,35 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+
+# Local configuration and environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Databases and Local Storage (ignore processed RAG storage and indices)
+storage/
+rag_storage/
+temp_uploads/
+
+# Submodules (cloned repositories - kept out of the codebase commit)
+LightRAG/
+RAG-Anything/
+
+# Output HTML visualizer caches
+query_subgraph.html
+lightrag_graph.html
+
+# Logs
+*.log
+rag_pipeline.log
+test_query.log
+
+# OS files
+.DS_Store
+Thumbs.db
