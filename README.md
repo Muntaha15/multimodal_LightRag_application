@@ -13,7 +13,7 @@ An integrated Graph RAG and Neo4j Streamlit dashboard combining the capabilities
 
 ### 1. Clone this Repository
 ```bash
-git clone <your-new-github-repo-url>
+git clone https://github.com/Muntaha15/multimodal_LightRag_application.git
 cd project_agv
 ```
 
