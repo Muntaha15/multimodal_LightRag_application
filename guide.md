@@ -2,6 +2,9 @@
 
 This guide describes how to run and test the integrated Graph RAG and Neo4j Streamlit application manually on your GPU machine.
 
+> [!NOTE]
+> For a detailed code breakdown, directory structure details, and data flows, please refer to the [Architecture & Components Guide (COMPONENTS.md)](COMPONENTS.md).
+
 ---
 
 ## 🛠️ Prerequisites
@@ -54,7 +57,7 @@ docker ps
 
 ## 📥 Step 3: Run the Ingestion Pipeline
 
-To run the initial clean indexing of `book.txt` (which uses MinerU for hybrid parsing, extracts graph entities, embeds them, and uploads them to Neo4j):
+To run the initial clean indexing of all documents in the configured input folder (by default, `./docs/` which now contains `book.txt`):
 
 1. Activate your Conda environment:
    ```bash
@@ -99,3 +102,10 @@ Once the Streamlit UI is open, you can test the following three integrated tabs:
 ### 3. 📤 Document Ingestion (Tab 3)
 * **File Upload:** Drag and drop or browse files (PDFs, TXT, DOCX, etc.) to index them into your Graph RAG database.
 * **Real-time Logs:** Click **Start Ingestion Process** and watch the real-time activity log displaying logs from MinerU parsing and LightRAG extraction as it processes the document.
+
+### 4. 🌐 Complete Graph Explorer (Tab 4)
+* **Reload Graph Data:** Click **Reload Graph Data** to fetch the complete knowledge graph directly from your active storage backend (Neo4j or local NetworkXStorage).
+* **Search & Neighbors Filter:** Search for a specific node by name and adjust the **Search Neighbor Hops** (1 or 2 hops) to explore its immediate neighborhood.
+* **Entity Type Filtering:** Select one or more entity types from the dynamically populated multiselect dropdown to focus on specific categories of nodes.
+* **Density & Performance Controls:** Adjust the **Minimum Connection Degree** slider to filter out leaf nodes and isolate key hubs, and use the **Max Nodes to Render** slider to optimize browser rendering performance.
+

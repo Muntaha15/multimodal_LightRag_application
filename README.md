@@ -2,6 +2,9 @@
 
 An integrated Graph RAG and Neo4j Streamlit dashboard combining the capabilities of **HKUDS/LightRAG** and **HKUDS/RAG-Anything** using a local Neo4j database and local LLMs hosted on Ollama.
 
+> [!TIP]
+> **New to the project?** Read the [Architecture & Components Guide (COMPONENTS.md)](COMPONENTS.md) to understand the codebase layout, data flows, and design details.
+
 ---
 
 ## 🚀 Quick Start Guide
@@ -73,4 +76,4 @@ NEO4J_DATABASE=neo4j
   streamlit run app.py --server.port 8501 --server.address 0.0.0.0
   ```
 
-For more detailed verification and step-by-step instructions, please read [guide.md](guide.md).
+For more detailed verification and step-by-step instructions, please read the manual [guide.md](guide.md). For codebase layout and data flows, check the [COMPONENTS.md](COMPONENTS.md) onboarding guide.

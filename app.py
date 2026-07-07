@@ -28,6 +28,7 @@ from rag.raganything_init import initialize_raganything
 from viz.graph_viz import render_networkx_graph
 from lightrag import QueryParam
 from rag.reranker import ENABLE_RERANK
+from query.query_runner import aquery_with_vlm_stream
 from neo4j import GraphDatabase
 
 # Set page config with dark/premium default
@@ -297,6 +298,85 @@ def purge_local_directory():
         return True, f"Purged local files in {working_dir}"
     return False, "Working directory does not exist"
 
+def load_complete_graph(storage_type, uri, user, password, working_dir):
+    """Load the complete knowledge graph based on current storage backend.
+    
+    Returns a tuple (success, nx.Graph or error_message).
+    """
+    if storage_type == "Neo4JStorage":
+        query = """
+        MATCH (n)
+        OPTIONAL MATCH (n)-[r]->(m)
+        RETURN n.entity_id AS src_id, 
+               n.entity_type AS src_type, 
+               n.description AS src_desc,
+               n.source_id AS src_source_id,
+               type(r) AS rel_type, 
+               r.keywords AS keywords, 
+               r.description AS rel_desc, 
+               r.weight AS weight,
+               m.entity_id AS tgt_id
+        """
+        success, records = run_cypher_query(uri, user, password, query)
+        if not success:
+            return False, f"Neo4j Query Error: {records}"
+        
+        G = nx.Graph()
+        for rec in records:
+            src = rec.get("src_id")
+            if not src:
+                continue
+            
+            # Add or update source node
+            if not G.has_node(src):
+                G.add_node(
+                    src,
+                    entity_type=rec.get("src_type", "UNKNOWN"),
+                    description=rec.get("src_desc", ""),
+                    source_id=rec.get("src_source_id", "")
+                )
+            else:
+                # If we initialized it earlier as target, update properties
+                if rec.get("src_type"):
+                    G.nodes[src]["entity_type"] = rec.get("src_type")
+                if rec.get("src_desc"):
+                    G.nodes[src]["description"] = rec.get("src_desc")
+                if rec.get("src_source_id"):
+                    G.nodes[src]["source_id"] = rec.get("src_source_id")
+            
+            # If relationship exists, add edge and target node
+            tgt = rec.get("tgt_id")
+            if tgt:
+                if not G.has_node(tgt):
+                    G.add_node(
+                        tgt,
+                        entity_type="UNKNOWN",
+                        description=""
+                    )
+                
+                weight_val = rec.get("weight")
+                weight = float(weight_val) if weight_val is not None else 1.0
+                
+                G.add_edge(
+                    src,
+                    tgt,
+                    keywords=rec.get("keywords", ""),
+                    description=rec.get("rel_desc", ""),
+                    weight=weight,
+                    relation_type=rec.get("rel_type", "")
+                )
+        return True, G
+    else:
+        # Fall back to local GraphML file loader
+        graphml_path = os.path.join(working_dir, "graph_chunk_entity_relation.graphml")
+        if not os.path.exists(graphml_path):
+            return False, f"Local index file not found at: {graphml_path}. Please run ingestion first."
+        try:
+            G = nx.read_graphml(graphml_path)
+            return True, G
+        except Exception as e:
+            return False, f"Failed to load local GraphML file: {e}"
+
 # ---------------------------------------------------------------------------
 # Sidebar - System Status
 # ---------------------------------------------------------------------------
@@ -376,10 +456,11 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # Tabs Scaffolding
 # ---------------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "🔍 RAG & Graph Retrieval",
     "🗄️ Neo4j Graph Manager",
-    "📤 Document Ingestion"
+    "📤 Document Ingestion",
+    "🌐 Complete Graph Explorer"
 ])
 
 # ---------------------------------------------------------------------------
@@ -395,6 +476,11 @@ with tab1:
         query_input = st.text_input("Ask a question about the indexed content:", value="Who is Ebenezer Scrooge and what are the main themes of his story?")
     with col_opt:
         query_mode = st.selectbox("Search Mode", options=["hybrid", "local", "global", "naive"], index=0)
+        vlm_enabled = st.checkbox(
+            "🖼️ VLM Enhanced",
+            value=False,
+            help="When enabled, the vision model processes images found in retrieved context for richer answers. Falls back to text-only if no images are present.",
+        )
         
     if st.button("Retrieve & Generate", type="primary", use_container_width=True):
         if query_input.strip() == "":
@@ -405,15 +491,22 @@ with tab1:
                     # Get RAG instances
                     rag, lightrag = get_rag_instances_sync()
                     
-                    # Create QueryParam
-                    param = QueryParam(
-                        mode=query_mode,
-                        stream=True,
-                        enable_rerank=ENABLE_RERANK
-                    )
-                    
-                    # Execute query_llm to get full raw data & streaming response
-                    result = run_async(lightrag.aquery_llm(query_input, param=param))
+                    if vlm_enabled:
+                        # VLM-enhanced streaming: processes images in retrieved
+                        # context and streams VLM answers with subgraph data.
+                        result = run_async(aquery_with_vlm_stream(
+                            rag, lightrag, query_input,
+                            mode=query_mode,
+                            enable_rerank=ENABLE_RERANK,
+                        ))
+                    else:
+                        # Standard text-only streaming query
+                        param = QueryParam(
+                            mode=query_mode,
+                            stream=True,
+                            enable_rerank=ENABLE_RERANK
+                        )
+                        result = run_async(lightrag.aquery_llm(query_input, param=param))
                 except Exception as ex:
                     st.error(f"Failed to run RAG query: {ex}")
                     result = None
@@ -847,6 +940,7 @@ with tab3:
             
             # Coroutine to run on the persistent background loop
             async def run_ingestion_coro(rag_instance, file_paths):
+                from lightrag.utils import compute_mdhash_id, sanitize_text_for_encoding
                 try:
                     bypass = os.getenv("BYPASS_TEXT_MINERU", "True").lower() == "true"
                     for fp in file_paths:
@@ -854,18 +948,23 @@ with tab3:
                             logger.info(f"Ingesting plain text directly via LightRAG (bypassing MinerU): {fp}")
                             with open(fp, "r", encoding="utf-8", errors="ignore") as f:
                                 content = f.read()
-                            # Insert directly into LightRAG
+                            # Pre-compute the same doc ID that LightRAG generates
+                            # internally (sanitize → MD5 hash) so both layers agree.
+                            cleaned = sanitize_text_for_encoding(content)
+                            doc_id = compute_mdhash_id(cleaned, prefix="doc-")
+                            # Insert directly into LightRAG with explicit ID
                             await rag_instance.lightrag.ainsert(
                                 input=content,
-                                file_paths=os.path.basename(fp)
+                                ids=doc_id,
+                                file_paths=os.path.basename(fp),
                             )
-                            # Register document status in RAGAnything
-                            doc_id = rag_instance._get_file_reference(fp)
+                            # Register document status in RAGAnything using the
+                            # same content-hash doc_id (positional: doc_id, file_path).
                             await rag_instance._upsert_doc_status(
-                                doc_id=doc_id,
-                                file_name=os.path.basename(fp),
-                                status="success",
-                                error_msg=""
+                                doc_id,
+                                fp,
+                                status="processed",
+                                error_msg="",
                             )
                         else:
                             await rag_instance.process_document_complete(
@@ -937,3 +1036,169 @@ with tab3:
                 st.error(f"Ingestion failed: {ingest_state['error']}")
             else:
                 st.success("Successfully ingested all documents and updated the Knowledge Graph!")
+
+# ---------------------------------------------------------------------------
+# Tab 4: Complete Graph Explorer
+# ---------------------------------------------------------------------------
+with tab4:
+    st.markdown("### 🌐 Complete Knowledge Graph Explorer")
+    st.markdown("Visualize and explore the entire knowledge graph. Use the controls below to filter and search nodes for optimal browser rendering performance.")
+
+    # 1. Fetch current configuration
+    active_storage = os.getenv("GRAPH_STORAGE", "NetworkXStorage")
+    n4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    n4j_user = os.getenv("NEO4J_USERNAME", "neo4j")
+    n4j_pass = os.getenv("NEO4J_PASSWORD", "password")
+    working_dir = os.getenv("WORKING_DIR", "./storage/dickens_v1")
+
+    # 2. Add Controls inside a column layout
+    col_c1, col_c2, col_c3 = st.columns([1, 1, 1])
+    
+    with col_c1:
+        max_nodes = st.slider(
+            "Max Nodes to Render:",
+            min_value=10,
+            max_value=500,
+            value=150,
+            step=10,
+            help="Cap the number of nodes to render. Higher numbers (>300) might slow down your browser."
+        )
+        min_degree = st.slider(
+            "Minimum Connection Degree:",
+            min_value=1,
+            max_value=20,
+            value=1,
+            step=1,
+            help="Only show nodes with at least this number of relationships. Helps filter out leaf nodes."
+        )
+    with col_c2:
+        search_query = st.text_input(
+            "Search Node by Name:",
+            placeholder="e.g. Scrooge",
+            help="Filters the graph to only show this node and its immediate neighbors (up to 2-hops)."
+        )
+        hop_limit = st.selectbox(
+            "Search Neighbor Hops:",
+            options=[1, 2],
+            index=0,
+            help="How many steps away from the searched node to display."
+        )
+    with col_c3:
+        refresh_btn = st.button("🔄 Reload Graph Data", use_container_width=True)
+        if max_nodes > 300:
+            st.warning("⚠️ High node limit (>300) may cause UI latency.")
+
+    # Load the full graph into session state to avoid reloading on every filter move
+    if "full_graph" not in st.session_state or refresh_btn:
+        with st.spinner("Loading complete graph from storage backend..."):
+            if refresh_btn:
+                # Add a brief artificial delay so the user can perceive the loading spinner
+                time.sleep(0.5)
+            success, result = load_complete_graph(active_storage, n4j_uri, n4j_user, n4j_pass, working_dir)
+            if success:
+                st.session_state["full_graph"] = result
+                st.session_state["graph_load_error"] = None
+                if refresh_btn:
+                    st.toast(f"Graph reloaded: {result.number_of_nodes()} nodes, {result.number_of_edges()} relationships!", icon="🔄")
+            else:
+                st.session_state["full_graph"] = None
+                st.session_state["graph_load_error"] = result
+
+    if st.session_state.get("graph_load_error"):
+        st.warning(st.session_state["graph_load_error"])
+    elif st.session_state.get("full_graph") is not None:
+        G_full = st.session_state["full_graph"]
+        
+        # Get all unique entity types in the loaded graph dynamically for the multiselect filter
+        all_types = sorted(list(set(
+            data.get("entity_type", "UNKNOWN") 
+            for _, data in G_full.nodes(data=True)
+        )))
+        
+        # Place the multiselect filter dynamically
+        with col_c2:
+            selected_types = st.multiselect(
+                "Filter by Entity Type(s):",
+                options=all_types,
+                default=[],
+                help="Only show nodes of these entity types. Leave empty to show all."
+            )
+
+        # Apply Filtering logic
+        G_filtered = G_full.copy()
+        
+        # A. Filter by Search Query (Hop-based pruning)
+        if search_query.strip():
+            query_node = search_query.strip()
+            # Try case-insensitive matching
+            found_node = None
+            for node in G_filtered.nodes:
+                if node.lower() == query_node.lower():
+                    found_node = node
+                    break
+            
+            if found_node:
+                nodes_to_keep = {found_node}
+                current_frontier = {found_node}
+                for _ in range(hop_limit):
+                    next_frontier = set()
+                    for node in current_frontier:
+                        neighbors = set(G_filtered.neighbors(node))
+                        next_frontier.update(neighbors)
+                    nodes_to_keep.update(next_frontier)
+                    current_frontier = next_frontier
+                
+                G_filtered = G_filtered.subgraph(nodes_to_keep).copy()
+            else:
+                st.info(f"Node '{query_node}' not found in the graph.")
+                G_filtered = nx.Graph()  # Empty graph
+
+        # B. Filter by Entity Type
+        if selected_types and G_filtered.number_of_nodes() > 0:
+            nodes_to_keep = [
+                n for n, data in G_filtered.nodes(data=True)
+                if data.get("entity_type") in selected_types
+            ]
+            G_filtered = G_filtered.subgraph(nodes_to_keep).copy()
+
+        # C. Filter by connection degree
+        if min_degree > 1 and G_filtered.number_of_nodes() > 0:
+            nodes_to_keep = [
+                n for n in G_filtered.nodes()
+                if G_filtered.degree(n) >= min_degree
+            ]
+            G_filtered = G_filtered.subgraph(nodes_to_keep).copy()
+
+        # D. Limit max nodes (Sort by degree descending to keep high-value hubs)
+        num_nodes = G_filtered.number_of_nodes()
+        if num_nodes > max_nodes:
+            sorted_nodes = sorted(
+                G_filtered.nodes(),
+                key=lambda n: G_filtered.degree(n),
+                reverse=True
+            )
+            nodes_to_keep = sorted_nodes[:max_nodes]
+            G_filtered = G_filtered.subgraph(nodes_to_keep).copy()
+
+        # Render Graph Visuals
+        num_nodes_final = G_filtered.number_of_nodes()
+        num_edges_final = G_filtered.number_of_edges()
+        
+        st.markdown(f"**Showing {num_nodes_final} nodes and {num_edges_final} relationships** (out of {G_full.number_of_nodes()} total nodes)")
+
+        if num_nodes_final == 0:
+            st.info("No nodes match the current filter criteria.")
+        else:
+            with st.spinner("Rendering visualization..."):
+                try:
+                    temp_viz_path = os.path.join(PROJECT_ROOT, "lightrag_graph.html")
+                    render_networkx_graph(G_filtered, temp_viz_path)
+                    
+                    if os.path.exists(temp_viz_path):
+                        with open(temp_viz_path, "r", encoding="utf-8") as f:
+                            html_data = f.read()
+                        components.html(html_data, height=700, scrolling=True)
+                    else:
+                        st.error("Failed to generate the interactive graph HTML.")
+                except Exception as render_ex:
+                    st.error(f"Failed to render graph visualization: {render_ex}")

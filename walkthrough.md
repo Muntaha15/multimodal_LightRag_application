@@ -9,6 +9,7 @@ This document provides a summary of the completed work, files created or modifie
      * **Tab 1: RAG Querying & Retrieval Visualization:** Allows querying the knowledge graph, displays a streaming response from the local LLM, and builds/renders a query-specific interactive network diagram using `pyvis` (embedded as an iframe).
      * **Tab 2: Neo4j Graph Manager:** Displays connected database status, statistics (total node and relationship counts, distribution tables), a Cypher query execution console, and a cache database reset option.
      * **Tab 3: Document Ingestion:** Hosts a file uploader supporting PDFs, TXT, DOCX, etc., with a real-time tailing logs console rendering MinerU parsing and LightRAG indexing outputs.
+     * **Tab 4: Complete Graph Explorer:** Allows visual exploration of the entire knowledge graph using an interactive physics-based PyVis canvas. Includes controls to reload graph data, search nodes by name (with adjustable 1 or 2-hop neighborhood views), filter dynamically by entity types, and adjust the rendering density (via connection degree and node capacity limits) to prevent browser slowdowns.
      * **Premium Styling:** Applied dark-mode aesthetics, custom fonts (Outfit and Plus Jakarta Sans), gradient headers, glassmorphism cards, and interactive status indicators.
 
 2. **Graph Visualization Module:**
@@ -47,4 +48,27 @@ This document provides a summary of the completed work, files created or modifie
 ## Manual Verification Steps
 
 Please refer to the detailed [guide.md](file:///teamspace/studios/this_studio/project_agv/guide.md) in your project directory to run the components and verify the Streamlit dashboard manually.
+
+
+## 🧬 Knowledge Graph Optimizations (Expanded Entity Types & Guardrails)
+
+We updated the Graph RAG configuration to fully utilize the system's capabilities in building a rich, context-rich semantic network:
+
+1. **Expanded Entity Schema:**
+   * In [lightrag_init.py](file:///teamspace/studios/this_studio/project_agv/rag/lightrag_init.py): Expanded the permitted `entity_types` in LightRAG from the restrictive `["person", "location", "organization"]` list to the more comprehensive list: `["Person", "Creature", "Organization", "Location", "Event", "Concept", "Method", "Artifact", "NaturalObject"]`.
+   * This allows the knowledge graph to ingest and relate abstract concepts, technical methods, historical events, and artifacts, which are crucial for high-level semantic retrieval.
+
+2. **Relaxed Abstraction Constraints:**
+   * In [llm.py](file:///teamspace/studios/this_studio/project_agv/rag/llm.py): Modified [ENTITY_EXTRACTION_ADDENDUM](file:///teamspace/studios/this_studio/project_agv/rag/llm.py#L33) to allow extracting significant thematic concepts, methods, or processes (e.g., *"Industrialization"*, *"Poverty"*, *"Binary Search"*).
+   * Maintained strong negative examples (e.g., *"Mashed Potatoes"*, *"Wicker Baskets"*) to filter out trivial everyday objects and descriptive noise while preserving meaningful abstract connections.
+
+## 📖 Developer Onboarding & Architecture Guide (COMPONENTS.md)
+
+We have created a new architecture and onboarding guide to help developers quickly understand the codebase structure and internal components:
+* Created [COMPONENTS.md](file:///teamspace/studios/this_studio/project_agv/COMPONENTS.md) which includes:
+  * A file-by-file directory tree map.
+  * Comprehensive breakdowns of all modules, including Streamlit's event-loop thread caching implementation.
+  * Inline Mermaid diagrams mapping out the Document Ingestion and Retrieval flows.
+  * Key development and optimization tips for contributors.
+* Modified [README.md](file:///teamspace/studios/this_studio/project_agv/README.md) and [guide.md](file:///teamspace/studios/this_studio/project_agv/guide.md) to prominently display links to the onboarding guide.
 

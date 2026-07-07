@@ -8,10 +8,9 @@ Pipeline overview
 3. Optionally purge stale index files (--fresh flag).
 4. Initialise LightRAG (inner layer) → wrap with RAGAnything (outer layer).
 5. Embedding smoke-test (prints detected dimension).
-6. Ingest book.txt as plain text via text_ingest.
-7. Ingest any files in ./docs/ via file_ingest (multimodal).
-8. Run all 4 query modes on the demo question.
-9. finally: flush LLM cache + finalize_storages.
+6. Ingest documents in configured directory via file_ingest (multimodal).
+7. Run all 4 query modes on the demo question.
+8. finally: flush LLM cache + finalize_storages.
 
 Usage
 -----
@@ -39,7 +38,6 @@ load_dotenv(dotenv_path=".env", override=True)
 from config.preflight import check_ollama_connectivity, verify_required_models
 from rag.lightrag_init import initialize_lightrag
 from rag.raganything_init import initialize_raganything
-from ingest.text_ingest import insert_text_file
 from ingest.file_ingest import insert_files, insert_folder
 from query.query_runner import run_all_modes
 
@@ -126,34 +124,18 @@ async def main(fresh: bool = False) -> None:
                 "(queries on an existing index may still work)."
             )
 
-        # ── Ingest book.txt (plain text) ───────────────────────────────────
-        book_path = Path(os.getenv("BOOK_PATH", "./book.txt"))
-        if book_path.exists():
-            bypass = os.getenv("BYPASS_TEXT_MINERU", "True").lower() == "true"
-            if bypass:
-                logger.info("Ingesting plain text directly (bypassing MinerU): %s", book_path)
-                await insert_text_file(rag, book_path)
-            else:
-                logger.info("Ingesting plain text via RAGAnything pipeline: %s", book_path)
-                await rag.process_document_complete(
-                    file_path=str(book_path),
-                    output_dir="./rag_storage/output",
-                    parse_method="auto"
-                )
-        else:
-            logger.warning(
-                "book.txt not found at '%s' — skipping plain-text ingest. "
-                "Set BOOK_PATH in .env to override.",
-                book_path,
-            )
-
-        # ── Ingest ./docs/ folder (multimodal) ────────────────────────────
-        docs_dir = Path("./docs")
+        # ── Ingest source documents folder ─────────────────────────────────
+        docs_dir_path = os.getenv("DOCS_DIR", "./docs")
+        docs_dir = Path(docs_dir_path)
         if docs_dir.is_dir():
-            logger.info("Ingesting ./docs/ via RAGAnything.process_folder_complete")
+            logger.info("Ingesting folder via RAGAnything wrapper: %s", docs_dir)
             await insert_folder(rag, docs_dir)
         else:
-            logger.info("No ./docs/ folder found — skipping multimodal ingest.")
+            logger.warning(
+                "Documents folder not found at '%s' — skipping ingest. "
+                "Set DOCS_DIR in .env to override.",
+                docs_dir_path,
+            )
 
         # ── Run all 4 query modes ──────────────────────────────────────────
         await run_all_modes(rag, DEMO_QUERY)

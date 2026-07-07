@@ -34,13 +34,13 @@ ENTITY_EXTRACTION_ADDENDUM: str = """
 
 ---Additional Extraction Constraints---
 
-1. SCOPE: Only extract entities that are NAMED and CONCRETE.
-   Acceptable types: a named person, a named place, a named organization,
-   a named artifact, a named document or law.
-   NOT acceptable: emotions, abstract qualities, generic objects, food items,
-   household objects, or mood descriptions.
-   Examples of what to REJECT: "Forgiveness", "Avarice", "Dense Gloom",
-   "Mashed Potatoes", "Feather-Beds", "Wicker Baskets".
+1. SCOPE: Extract named entities, concrete entities, and significant high-level concepts, themes, methods, or processes.
+   Acceptable types:
+   - A named person, creature, place, or organization.
+   - A named artifact, document, or law.
+   - Significant thematic concepts, theories, methods, or processes (e.g., "Industrialization", "Poverty", "Binary Search", "Cryptography").
+   NOT acceptable: trivial everyday objects, common foods, minor transient emotions, or descriptive fragments.
+   Examples of what to REJECT: "Mashed Potatoes", "Feather-Beds", "Wicker Baskets", "Happy Mood", "Quickly Running".
 
 2. CANONICAL NAMES: When the same entity appears under multiple names or
    titles, use only the most complete and formal name.

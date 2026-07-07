@@ -75,7 +75,17 @@ async def initialize_lightrag() -> LightRAG:
             "worker_timeout": 1800,
             "llm_timeout": 1800,
             "language": "English",
-            "entity_types": ["person", "location", "organization"],
+            "entity_types": [
+                "Person",
+                "Creature",
+                "Organization",
+                "Location",
+                "Event",
+                "Concept",
+                "Method",
+                "Artifact",
+                "NaturalObject",
+            ],
         },
 
         summary_max_tokens=4096,
