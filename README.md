@@ -1,5 +1,7 @@
 # 🧬 Advanced Graph RAG Dashboard
 
+![alt text](./app_snapshots/image.png)
+
 An integrated Graph RAG and Neo4j Streamlit dashboard combining the capabilities of **HKUDS/LightRAG** and **HKUDS/RAG-Anything** using a local Neo4j database and local LLMs hosted on Ollama.
 
 > [!TIP]
