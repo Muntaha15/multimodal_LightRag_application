@@ -14,6 +14,7 @@ sentence-transformers
 FlagEmbedding
 python-dotenv
 httpx
+openai
 
 # Optional: enables PDF and DOCX parsing in RAGAnything
 # mineru

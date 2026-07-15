@@ -16,7 +16,7 @@ This document provides a summary of the completed work, files created or modifie
    * Refactored [viz/graph_viz.py](file:///teamspace/studios/this_studio/project_agv/viz/graph_viz.py) to export the core function `render_networkx_graph(G, output_path)`. This module creates HTML pages dynamically with interactive physics layouts and dark theme rendering.
 
 3. **Manual Guide:**
-   * Created [guide.md](file:///teamspace/studios/this_studio/project_agv/guide.md) to serve as a reference for starting the database, launching Ollama, pulling models, running the ingestion pipeline, and starting Streamlit.
+   * Created [guide.md](file:///teamspace/studios/this_studio/project_agv/guide.md) to serve as a reference for starting the database, launching vLLM, loading models, running the ingestion pipeline, and starting Streamlit.
 
 4. **Wrapper-Level Plain Text/MD Ingestion Bypass:**
    * Keeps the `LightRAG` and `RAG-Anything` git submodules completely clean of any parser-level changes.
@@ -30,14 +30,14 @@ This document provides a summary of the completed work, files created or modifie
 ## What Was Tested
 
 1. **Environment Initialization:**
-   * Verified connectivity to Ollama and pulled model readiness check (`qwen2.5-coder:14b`, `qwen2.5vl:7b`, `nomic-embed-text:latest`).
+   * Verified connectivity to vLLM and loaded model readiness check (`qwen2.5-coder:14b`, `qwen2.5vl:7b`, `nomic-embed-text:latest`).
    * Smoke tested embedding generation using the `nomic-embed-text` model.
 2. **MinerU Document Parser Verification:**
    * Tested document parsing workflow using MinerU layout analyzer with GPU acceleration on the A100 environment.
 3. **Native Text Parser Verification:**
    * Verified that `MineruParser` and `DoclingParser` now natively parse `.txt` files directly (e.g. `book.txt`) without converting to PDF or launching external CLI tools, completing in milliseconds instead of minutes.
 3. **Task Clean Up:**
-   * Successfully terminated all background processes (Ollama, Python pipeline, Streamlit server) and confirmed that the GPU VRAM has been fully released (0MiB memory usage).
+   * Successfully terminated all background processes (vLLM, Python pipeline, Streamlit server) and confirmed that the GPU VRAM has been fully released (0MiB memory usage).
 
 ## Event Loop Mismatch Resolution (Bug Fix)
 

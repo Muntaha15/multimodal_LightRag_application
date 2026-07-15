@@ -10,7 +10,7 @@ This repository provides an integrated local **Multimodal Graph RAG pipeline** a
 1. **LightRAG** (Inner Layer): Handles core chunking, embedding generation, graph extraction, vector databases, local/global/hybrid retrieval, and query processing.
 2. **RAG-Anything** (Outer Layer): Wraps LightRAG to support multimodal input ingestion (PDF layout extraction via MinerU, image processing, table parsing, and vision-model captioning).
 
-The database backend is **Neo4j** (running locally via Docker Compose), and all models (text LLM, vision model, and text embedding) are served locally by **Ollama**.
+The database backend is **Neo4j** (running locally via Docker Compose), and all models (text LLM, vision model, and text embedding) are served locally by **vLLM**.
 
 ---
 
@@ -22,7 +22,7 @@ Below is the layout of the project, highlighting the core folders and their role
 project_agv/
 ├── config/                  # Logging and sanity check configurations
 │   ├── logging_config.py    # Rotating file + stderr logging setup
-│   └── preflight.py         # Ollama connectivity and model verification
+│   └── preflight.py         # vLLM connectivity and model verification
 ├── docs/                    # Ingestion source directory (contains raw files like book.txt)
 ├── docs/book.txt            # Default source document (Alice in Wonderland or novel snippet)
 ├── ingest/                  # Data ingestion pipelines
@@ -32,9 +32,9 @@ project_agv/
 ├── query/                   # Retrieval and querying handlers
 │   └── query_runner.py      # Multi-mode query execution and VLM streaming adapters
 ├── rag/                     # Core RAG initialization and model configurations
-│   ├── embeddings.py        # Ollama embedding wrapper
+│   ├── embeddings.py        # vLLM embedding wrapper (OpenAI-compatible)
 │   ├── lightrag_init.py     # LightRAG settings and entity scheme setup
-│   ├── llm.py               # Local Ollama LLM and VLM prompt/extraction controllers
+│   ├── llm.py               # vLLM LLM and VLM prompt/extraction controllers (OpenAI-compatible)
 │   ├── raganything_init.py  # Option B RAGAnything injection wiring
 │   └── reranker.py          # Cross-encoder and FlagReranker modules (GPU/FP16)
 ├── storage/                 # Local directory for persistent data stores
@@ -77,7 +77,7 @@ All async RAG executions are scheduled on this single persistent background loop
 
 ### 2. CLI Ingestion & Testing: `main.py`
 The command-line entry point. Running `python main.py` runs a complete pipeline:
-1. Verify Ollama connectivity and model availability.
+1. Verify vLLM connectivity and model availability.
 2. Initialize LightRAG and wrap it with RAGAnything.
 3. Perform an embedding smoke-test to verify vector sizes.
 4. Scan the `./docs` directory and ingest new files.
@@ -99,7 +99,7 @@ python main.py --fresh
 
 ### 4. Retrieval & Query: `query/`
 * **`query_runner.py`**: Runs CLI multi-mode testing and custom retrieval streaming.
-  * *VLM Streaming Adapter (`aquery_with_vlm_stream`):* `RAGAnything`'s default `aquery_vlm_enhanced` blocks token-by-token streaming response generation. To circumvent this, the custom wrapper queries LightRAG with `only_need_prompt=True` to fetch retrieved text and image paths, encodes retrieved images as base64, and initiates an async streaming session to Ollama's vision model. If no images exist in the retrieval context, it gracefully falls back to text-only streaming.
+  * *VLM Streaming Adapter (`aquery_with_vlm_stream`):* `RAGAnything`'s default `aquery_vlm_enhanced` blocks token-by-token streaming response generation. To circumvent this, the custom wrapper queries LightRAG with `only_need_prompt=True` to fetch retrieved text and image paths, encodes retrieved images as base64, and initiates an async streaming session to vLLM's vision model via OpenAI-compatible API. If no images exist in the retrieval context, it gracefully falls back to text-only streaming.
 
 ---
 
@@ -108,7 +108,7 @@ python main.py --fresh
   * *Schema Customization:* Rather than using standard `"person", "location", "organization"`, it registers an expanded entity schema: `["Person", "Creature", "Organization", "Location", "Event", "Concept", "Method", "Artifact", "NaturalObject"]`.
 * **`llm.py`**: Configures model parameters and formats custom extraction constraints.
   * *Entity Extraction Guardrails (`ENTITY_EXTRACTION_ADDENDUM`):* Modifies the extraction prompt to allow collecting high-level abstract concepts/themes (e.g., *"Industrialization"*, *"Poverty"*, *"Binary Search"*) while maintaining strict negative filters for everyday trivial clutter (e.g., *"Mashed Potatoes"*, *"Wicker Baskets"*).
-* **`embeddings.py`**: Builds the `EmbeddingFunc` mapped to Ollama. It accesses `.func` to retrieve the original async callable from the decorated `ollama_embed`, avoiding recursive double-wrapping errors.
+* **`embeddings.py`**: Builds the `EmbeddingFunc` mapped to vLLM (OpenAI-compatible). It accesses `.func` to retrieve the original async callable from the decorated `openai_embed`, avoiding recursive double-wrapping errors.
 * **`raganything_init.py`**: Wraps LightRAG inside `RAGAnything` (Option B: injected constructor).
 * **`reranker.py`**: Houses GPU-accelerated rerankers (sentence-transformers `CrossEncoder` and BAAI `FlagReranker`). Reranking is off by default and can be toggled by changing `ENABLE_RERANK = True` in `reranker.py`.
 
@@ -152,14 +152,14 @@ flowchart TD
     
     %% Non-VLM Path
     C -- No --> D[Initiate standard text streaming query]
-    D --> E[Retrieve tokens from Ollama text LLM]
+    D --> E[Retrieve tokens from vLLM text LLM]
     E --> F[Render streamed text in UI Tab 1]
     
     %% VLM Path
     C -- Yes --> G[Fetch image paths from local folders]
     G --> H[Convert images to Base64 strings]
     H --> I[Compose prompt + image parameters]
-    I --> J[Initiate streaming query on Ollama Vision Model]
+    I --> J[Initiate streaming query on vLLM Vision Model]
     J --> K[Render streamed VLM response tokens in UI Tab 1]
     
     F & K --> L[Query Neo4j for retrieved nodes and relations]

@@ -36,10 +36,10 @@ async def initialize_lightrag() -> LightRAG:
     --------------------
     * custom_llm_func injects ENTITY_EXTRACTION_ADDENDUM only during graph
       construction (keyword_extraction=True), not during query-time synthesis.
-    * EmbeddingFunc uses ollama_embed.func (unwrapped) via get_embedding_func()
+    * EmbeddingFunc uses openai_embed.func (unwrapped) via get_embedding_func()
       to avoid double-wrapping (see rag/embeddings.py for details).
     * llm_model_max_async=2 / max_parallel_insert=2 — conservative concurrency
-      that keeps Ollama stable on a single-GPU workstation.
+      that keeps vLLM stable on a single-GPU workstation.
     * "language": "English" in addon_params ensures extraction prompts are
       generated in English regardless of document language.
     * rerank_model_func is a post-init attribute on the LightRAG instance —
@@ -64,7 +64,7 @@ async def initialize_lightrag() -> LightRAG:
 
         # ── LLM ───────────────────────────────────────────────────────────
         llm_model_func=custom_llm_func,
-        llm_model_name=os.getenv("LLM_MODEL", "qwen2.5-coder:14b"),
+        llm_model_name=os.getenv("LLM_MODEL", "Qwen/Qwen2.5-Coder-14B-Instruct"),
         llm_model_max_async=2,
         max_parallel_insert=2,
 
@@ -91,13 +91,13 @@ async def initialize_lightrag() -> LightRAG:
         summary_max_tokens=4096,
 
         llm_model_kwargs={
-            "host": os.getenv("LLM_BINDING_HOST", "http://localhost:11434"),
-            "options": {"num_ctx": 16384},
+            "base_url": os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:8000/v1"),
+            "api_key": os.getenv("LLM_BINDING_API_KEY", "not_needed"),
             "timeout": int(os.getenv("TIMEOUT", "900")),
         },
 
         # ── Embeddings ────────────────────────────────────────────────────
-        # ollama_embed.func (accessed inside get_embedding_func) is the raw
+        # openai_embed.func (accessed inside get_embedding_func) is the raw
         # async callable — bypasses the @wrap_embedding_func_with_attrs
         # decorator to prevent double-wrapping in our own EmbeddingFunc.
         embedding_func=get_embedding_func(),

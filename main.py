@@ -35,7 +35,7 @@ configure_logging()
 # ── Load env AFTER logging so the log path can be overridden via .env ─────
 load_dotenv(dotenv_path=".env", override=True)
 
-from config.preflight import check_ollama_connectivity, verify_required_models
+from config.preflight import check_all_vllm_endpoints, verify_required_models
 from rag.lightrag_init import initialize_lightrag
 from rag.raganything_init import initialize_raganything
 from ingest.file_ingest import insert_files, insert_folder
@@ -81,8 +81,8 @@ async def _smoke_test_embedding(rag) -> bool:
         print(" ❌ Embedding smoke test FAILED")
         print("=" * 45)
         print(f"  Error: {exc}")
-        print("  → Is Ollama running?  ollama serve")
-        print("  → Is the model pulled? ollama pull " + os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest"))
+        print("  → Is the vLLM embedding server running?")
+        print("  → Check: curl " + os.getenv("EMBEDDING_BINDING_HOST", "http://127.0.0.1:8001/v1") + "/models")
         print("=" * 45 + "\n")
         return False
 
@@ -108,8 +108,8 @@ async def main(fresh: bool = False) -> None:
             logger.info("--fresh flag set: purging stale index files.")
             _purge_stale_files(working_dir)
 
-        # ── Pre-flight: verify Ollama is reachable ─────────────────────────
-        preflight = await check_ollama_connectivity()
+        # ── Pre-flight: verify vLLM is reachable ───────────────────────────
+        preflight = await check_all_vllm_endpoints()
         await verify_required_models(preflight["models"])
 
         # ── Init LightRAG + RAGAnything ────────────────────────────────────
@@ -159,7 +159,7 @@ async def main(fresh: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Local multimodal Graph RAG — LightRAG + RAGAnything + Ollama"
+        description="Local multimodal Graph RAG — LightRAG + RAGAnything + vLLM"
     )
     parser.add_argument(
         "--fresh",

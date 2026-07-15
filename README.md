@@ -2,7 +2,7 @@
 
 ![alt text](./app_snapshots/image.png)
 
-An integrated Graph RAG and Neo4j Streamlit dashboard combining the capabilities of **HKUDS/LightRAG** and **HKUDS/RAG-Anything** using a local Neo4j database and local LLMs hosted on Ollama.
+An integrated Graph RAG and Neo4j Streamlit dashboard combining the capabilities of **HKUDS/LightRAG** and **HKUDS/RAG-Anything** using a local Neo4j database and local LLMs served by vLLM.
 
 > [!TIP]
 > **New to the project?** Read the [Architecture & Components Guide (COMPONENTS.md)](COMPONENTS.md) to understand the codebase layout, data flows, and design details.
@@ -30,15 +30,20 @@ Activate your python/conda environment and install the requirements:
 pip install -r requirements.txt
 pip install -e ./LightRAG
 pip install -e ./RAG-Anything
+pip install vllm
 ```
 
 ### 4. Start Infrastructure
-* **Ollama:** Start Ollama and pull the required models:
+* **vLLM:** Start vLLM servers for each model (see [VLLM_ENDPOINTS.md](VLLM_ENDPOINTS.md) for full details):
   ```bash
-  ollama serve
-  ollama pull qwen2.5-coder:14b
-  ollama pull qwen2.5vl:7b
-  ollama pull nomic-embed-text:latest
+  # Terminal 1 — LLM
+  vllm serve Qwen/Qwen2.5-Coder-14B-Instruct --port 8000
+
+  # Terminal 2 — Embedding model
+  vllm serve nomic-ai/nomic-embed-text-v1.5 --port 8001
+
+  # Terminal 3 — Vision model (if needed)
+  vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8002
   ```
 * **Neo4j Database:** Spin up the database docker container:
   ```bash
@@ -49,13 +54,15 @@ pip install -e ./RAG-Anything
 Create a `.env` file in the root folder with the following configuration:
 ```env
 # Models
-LLM_MODEL=qwen2.5-coder:14b
-EMBEDDING_MODEL=nomic-embed-text:latest
-VISION_MODEL=qwen2.5vl:7b
+LLM_MODEL=Qwen/Qwen2.5-Coder-14B-Instruct
+EMBEDDING_MODEL=nomic-ai/nomic-embed-text-v1.5
+VISION_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
 
-# Binding Hosts
-LLM_BINDING_HOST=http://localhost:11434
-EMBEDDING_BINDING_HOST=http://localhost:11434
+# vLLM Binding Hosts (OpenAI-compatible endpoints)
+LLM_BINDING_HOST=http://127.0.0.1:8000/v1
+EMBEDDING_BINDING_HOST=http://127.0.0.1:8001/v1
+LLM_BINDING_API_KEY=not_needed
+EMBEDDING_BINDING_API_KEY=not_needed
 
 # Storage
 WORKING_DIR=./storage/dickens_v1

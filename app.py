@@ -22,7 +22,7 @@ from config.logging_config import configure_logging
 # Initialize logging before any deep lightrag imports
 configure_logging(log_filename="rag_pipeline.log")
 
-from config.preflight import check_ollama_connectivity, verify_required_models
+from config.preflight import check_all_vllm_endpoints, verify_required_models
 from rag.lightrag_init import initialize_lightrag
 from rag.raganything_init import initialize_raganything
 from viz.graph_viz import render_networkx_graph
@@ -204,9 +204,9 @@ def make_metric_card(title, value, icon=""):
 # ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def run_preflight_checks():
-    """Contact Ollama and verify model lists."""
+    """Contact vLLM endpoints and verify model lists."""
     try:
-        res = run_async(check_ollama_connectivity())
+        res = run_async(check_all_vllm_endpoints())
         return {"ok": True, "models": res["models"], "host": res["host"]}
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -384,21 +384,21 @@ with st.sidebar:
     st.markdown('<div class="glass-card" style="padding:16px;">', unsafe_allow_html=True)
     st.markdown('<h3 style="margin-top:0; font-family:\'Outfit\';">⚙️ System Status</h3>', unsafe_allow_html=True)
     
-    # 1. Ollama Connectivity Check
-    ollama_check = run_preflight_checks()
-    if ollama_check["ok"]:
+    # 1. vLLM Connectivity Check
+    vllm_check = run_preflight_checks()
+    if vllm_check["ok"]:
         st.markdown(
             f'<div style="margin-bottom:8px;"><span class="status-dot status-green"></span>'
-            f'<b>Ollama:</b> Connected ({ollama_check["host"]})</div>',
+            f'<b>vLLM:</b> Connected ({vllm_check["host"]})</div>',
             unsafe_allow_html=True
         )
     else:
         st.markdown(
             '<div style="margin-bottom:8px;"><span class="status-dot status-red"></span>'
-            '<b>Ollama:</b> Disconnected</div>',
+            '<b>vLLM:</b> Disconnected</div>',
             unsafe_allow_html=True
         )
-        st.error(f"Cannot reach Ollama: {ollama_check.get('error')}")
+        st.error(f"Cannot reach vLLM: {vllm_check.get('error')}")
 
     # 2. Neo4j Status Check
     n4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -424,18 +424,18 @@ with st.sidebar:
     st.markdown("<hr style='margin:12px 0; border:0; border-top:1px solid rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
     st.markdown("<b>Active Config</b>", unsafe_allow_html=True)
     
-    llm_model = os.getenv("LLM_MODEL", "qwen2.5-coder:14b")
-    embed_model = os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest")
-    vision_model = os.getenv("VISION_MODEL", "qwen2.5vl:7b")
+    llm_model = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-Coder-14B-Instruct")
+    embed_model = os.getenv("EMBEDDING_MODEL", "nomic-ai/nomic-embed-text-v1.5")
+    vision_model = os.getenv("VISION_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
     graph_storage = os.getenv("GRAPH_STORAGE", "NetworkXStorage")
     
-    # Simple check if pulled
-    available_models_lower = {m.lower() for m in ollama_check.get("models", [])}
+    # Simple check if model is loaded in vLLM
+    available_models_lower = {m.lower() for m in vllm_check.get("models", [])}
     
     def model_status_html(name, label):
-        is_pulled = name.lower() in available_models_lower or any(name.lower() in am for am in available_models_lower)
-        dot_class = "status-green" if is_pulled else "status-yellow"
-        tooltip = "Available" if is_pulled else "Not found in Ollama list (please pull it)"
+        is_loaded = name.lower() in available_models_lower or any(name.lower() in am for am in available_models_lower)
+        dot_class = "status-green" if is_loaded else "status-yellow"
+        tooltip = "Available" if is_loaded else "Not found in vLLM model list (start a vLLM server for it)"
         return f'<div style="font-size:0.85rem; margin-bottom:4px;"><span class="status-dot {dot_class}" title="{tooltip}"></span><b>{label}:</b> {name}</div>'
 
     st.markdown(model_status_html(llm_model, "LLM"), unsafe_allow_html=True)

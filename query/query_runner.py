@@ -21,8 +21,8 @@ To solve this, ``aquery_with_vlm_stream()`` replicates the VLM flow at the
 wrapper layer, calling:
     a. ``lightrag.aquery_llm()`` with ``only_need_prompt=True``  → retrieval data
     b. ``rag._process_image_paths_for_vlm()``                   → base64 images
-    c. ``rag.vision_model_func()``  via ``ollama_model_complete`` with ``stream=True``
-       → yields tokens as an async generator
+    c. OpenAI-compatible streaming via ``openai.AsyncOpenAI``    → yields tokens
+       as an async generator
 
 When no valid images are found in the retrieved context, the wrapper falls
 back to the standard text-only streaming path via ``lightrag.aquery_llm()``
@@ -199,16 +199,11 @@ async def aquery_with_vlm_stream(
     messages = rag._build_vlm_messages_with_images(enhanced_prompt, query, None)
 
     async def _vlm_stream() -> AsyncGenerator[str, None]:
-        """Stream tokens from the vision model via Ollama's low-level chat API.
+        """Stream tokens from the vision model via vLLM's OpenAI-compatible API.
 
-        We use ``_ollama_model_if_cache`` directly because:
-          • ``ollama_model_complete`` expects ``hashing_kv`` from the LightRAG
-            global config and doesn't accept model/host as plain kwargs.
-          • ``_ollama_model_if_cache`` supports ``stream=True``, ``host``,
-            ``model``, and the standard message format that Ollama uses.
+        Uses the ``openai.AsyncOpenAI`` client to stream chat completions
+        from the vLLM-served vision model.
         """
-        from lightrag.llm.ollama import _ollama_model_if_cache
-
         # Extract images and text from the VLM message content parts
         user_message = messages[1]
         content = user_message["content"]
@@ -230,47 +225,52 @@ async def aquery_with_vlm_stream(
 
         prompt_text = "\n".join(text_parts) if text_parts else query
 
-        # Build Ollama-native message format with images
-        ollama_messages: list[dict[str, Any]] = []
+        # Build OpenAI-compatible message format with multimodal content
+        openai_messages: list[dict[str, Any]] = []
         if system_prompt:
-            ollama_messages.append({"role": "system", "content": system_prompt})
+            openai_messages.append({"role": "system", "content": system_prompt})
 
-        user_msg: dict[str, Any] = {"role": "user", "content": prompt_text}
-        if images_b64:
-            user_msg["images"] = images_b64
-        ollama_messages.append(user_msg)
+        # Build user message with text + image content parts
+        user_content: list[dict[str, Any]] = [
+            {"type": "text", "text": prompt_text}
+        ]
+        for b64_img in images_b64:
+            user_content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{b64_img}",
+                },
+            })
 
-        vision_model = os.getenv("VISION_MODEL", "qwen2.5vl:7b")
-        host = os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:11434")
+        openai_messages.append({"role": "user", "content": user_content})
+
+        vision_model = os.getenv("VISION_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+        host = os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:8000/v1")
+        api_key = os.getenv("LLM_BINDING_API_KEY", "not_needed")
         timeout = int(os.getenv("TIMEOUT", "900"))
 
-        # _ollama_model_if_cache builds its own messages from prompt +
-        # system_prompt, but we need the full multimodal message list.
-        # So we call it with the prompt and pass messages via history.
-        # Actually, looking at the code more carefully, it constructs
-        # messages = [system, *history, user]. We want to send our own
-        # messages directly, so we use history_messages for the user msg
-        # and set prompt to empty.
-        import ollama as ollama_lib
+        from openai import AsyncOpenAI
 
-        ollama_client = ollama_lib.AsyncClient(host=host, timeout=timeout)
+        client = AsyncOpenAI(
+            base_url=host,
+            api_key=api_key,
+            timeout=float(timeout),
+        )
         try:
-            response = await ollama_client.chat(
+            response = await client.chat.completions.create(
                 model=vision_model,
-                messages=ollama_messages,
+                messages=openai_messages,
                 stream=True,
-                options={"num_ctx": 4096},
             )
             async for chunk in response:
-                token = chunk.get("message", {}).get("content", "")
-                if token:
-                    yield token
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
         except Exception as e:
             logger.error("VLM streaming failed: %s", e, exc_info=True)
             yield f"\n[VLM Error: {e}]"
         finally:
             try:
-                await ollama_client._client.aclose()
+                await client.close()
             except Exception:
                 pass
 
@@ -285,4 +285,3 @@ async def aquery_with_vlm_stream(
             "is_streaming": True,
         },
     }
-

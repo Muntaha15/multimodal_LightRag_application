@@ -2,18 +2,18 @@
 rag/llm.py — LLM function wrappers for LightRAG and RAGAnything.
 
 custom_llm_func
-    Wraps ollama_model_complete for the main text LLM.
+    Wraps openai_complete_if_cache for the main text LLM via vLLM.
     Injects ENTITY_EXTRACTION_ADDENDUM into EVERY system prompt so that
     entity/relation extraction stays scoped to named, concrete entities.
 
 vision_llm_func
-    Targets the vision model (VISION_MODEL env var).
+    Targets the vision model (VISION_MODEL env var) via vLLM.
     Accepts image_data as list[dict] with keys:
         type       — "image"
         data       — base64-encoded image string
         media_type — e.g. "image/png"
-    Extracts base64 strings and passes them to ollama_model_complete
-    as the images= list with num_ctx=4096.
+    Converts base64 strings into OpenAI-compatible image_url content parts
+    and passes them to openai_complete_if_cache.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import os
 import logging
 from typing import Any
 
-from lightrag.llm.ollama import ollama_model_complete
+from lightrag.llm.openai import openai_complete_if_cache
 
 logger = logging.getLogger("lightrag")
 
@@ -70,7 +70,7 @@ async def custom_llm_func(
     keyword_extraction: bool = False,
     **kwargs: Any,
 ) -> str:
-    """Wrap ollama_model_complete, appending entity-extraction constraints.
+    """Wrap openai_complete_if_cache, appending entity-extraction constraints.
 
     ENTITY_EXTRACTION_ADDENDUM is appended ONLY when keyword_extraction=True,
     which LightRAG sets during graph construction (entity extraction, relation
@@ -84,8 +84,8 @@ async def custom_llm_func(
         system_prompt:     Optional system-level instruction from LightRAG.
         history_messages:  Prior conversation turns.
         keyword_extraction: Flag set by LightRAG during graph construction.
-        **kwargs:          Forwarded verbatim to ollama_model_complete
-                           (model, host, options, timeout, …).
+        **kwargs:          Forwarded verbatim to openai_complete_if_cache
+                           (model, base_url, api_key, timeout, …).
 
     Returns:
         The model's text response as a plain string.
@@ -94,17 +94,20 @@ async def custom_llm_func(
         system_prompt = system_prompt + ENTITY_EXTRACTION_ADDENDUM
 
     # keyword_extraction MUST flow through **kwargs, NOT as a named arg.
-    # Upstream ollama_model_complete() does:
+    # Upstream openai_complete_if_cache() does:
     #     keyword_extraction = kwargs.pop("keyword_extraction", None)
     # If we also pass it as a named parameter, Python binds it to the
     # function signature and kwargs.pop returns None — silently disabling
     # the JSON format toggle during entity extraction.
     kwargs["keyword_extraction"] = keyword_extraction
 
-    return await ollama_model_complete(
+    return await openai_complete_if_cache(
+        os.getenv("LLM_MODEL", "Qwen/Qwen2.5-Coder-14B-Instruct"),
         prompt,
         system_prompt=system_prompt,
         history_messages=history_messages,
+        base_url=os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:8000/v1"),
+        api_key=os.getenv("LLM_BINDING_API_KEY", "not_needed"),
         **kwargs,
     )
 
@@ -124,8 +127,8 @@ async def vision_llm_func(
     """Vision-capable LLM wrapper for RAGAnything multimodal processing.
 
     Accepts image_data as a base64 string or messages array for VLM enhanced queries.
-    Extracts base64 strings and forwards them to ollama_model_complete
-    via the images= kwarg, targeting VISION_MODEL with a 4096-token context.
+    Converts base64 strings into OpenAI-compatible image_url content parts
+    and passes them to openai_complete_if_cache targeting the VISION_MODEL.
 
     Args:
         prompt:           Textual prompt or question about the images.
@@ -133,13 +136,13 @@ async def vision_llm_func(
         history_messages: Prior conversation turns.
         image_data:       Single image as base64 string (or list of dicts fallback).
         messages:         List of message dicts (from VLM enhanced queries).
-        **kwargs:         Extra kwargs — model/host/options overrides are
+        **kwargs:         Extra kwargs — model/base_url/api_key overrides are
                           stripped to prevent conflicts.
 
     Returns:
         The vision model's text response.
     """
-    images: list[str] = []
+    images_b64: list[str] = []
     extracted_prompt = prompt
 
     if messages:
@@ -153,7 +156,7 @@ async def vision_llm_func(
                     elif item.get("type") == "image_url":
                         url = item.get("image_url", {}).get("url", "")
                         if "base64," in url:
-                            images.append(url.split("base64,")[-1])
+                            images_b64.append(url.split("base64,")[-1])
             elif isinstance(content, str):
                 text_parts.append(content)
         
@@ -162,25 +165,55 @@ async def vision_llm_func(
             
     elif image_data:
         if isinstance(image_data, str):
-            images.append(image_data)
+            images_b64.append(image_data)
         elif isinstance(image_data, list):
             for item in image_data:
                 if isinstance(item, dict) and "data" in item:
-                    images.append(item["data"])
+                    images_b64.append(item["data"])
 
     # Strip keys we're explicitly setting to avoid kwarg conflicts
     _safe_kwargs = {
         k: v for k, v in kwargs.items()
-        if k not in ("model", "host", "options", "images")
+        if k not in ("model", "base_url", "api_key", "images")
     }
 
-    return await ollama_model_complete(
-        extracted_prompt,
-        system_prompt=system_prompt,
-        history_messages=history_messages,
-        model=os.getenv("VISION_MODEL", "qwen2.5vl:7b"),
-        host=os.getenv("LLM_BINDING_HOST", "http://localhost:11434"),
-        options={"num_ctx": 4096},
-        images=images if images else None,
-        **_safe_kwargs,
-    )
+    # Build OpenAI-compatible multimodal content parts if images are present
+    if images_b64:
+        content_parts: list[dict[str, Any]] = [
+            {"type": "text", "text": extracted_prompt}
+        ]
+        for b64_img in images_b64:
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{b64_img}",
+                },
+            })
+
+        # For OpenAI-compatible VLM, we send the multimodal content
+        # via history_messages with the proper content format.
+        vlm_messages = []
+        if system_prompt:
+            vlm_messages.append({"role": "system", "content": system_prompt})
+        vlm_messages.append({"role": "user", "content": content_parts})
+
+        return await openai_complete_if_cache(
+            os.getenv("VISION_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct"),
+            "",  # prompt is embedded in messages
+            system_prompt=None,  # already in messages
+            history_messages=vlm_messages,
+            base_url=os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:8000/v1"),
+            api_key=os.getenv("LLM_BINDING_API_KEY", "not_needed"),
+            **_safe_kwargs,
+        )
+    else:
+        # No images — standard text-only call to vision model
+        return await openai_complete_if_cache(
+            os.getenv("VISION_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct"),
+            extracted_prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages,
+            base_url=os.getenv("LLM_BINDING_HOST", "http://127.0.0.1:8000/v1"),
+            api_key=os.getenv("LLM_BINDING_API_KEY", "not_needed"),
+            **_safe_kwargs,
+        )

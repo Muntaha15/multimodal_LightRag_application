@@ -15,25 +15,30 @@ Ensure you are using the correct Python environment:
 
 ---
 
-## 🚀 Step 1: Start Ollama (LLM & Embeddings Server)
+## 🚀 Step 1: Start vLLM (LLM & Embeddings Server)
 
-Ollama hosts the local open-source models on your machine.
+vLLM serves the local open-source models on your machine via an OpenAI-compatible API.
 
-1. Open a new terminal and run:
+> [!IMPORTANT]
+> vLLM serves **one model per process**. You need separate terminals for each model.
+> See [VLLM_ENDPOINTS.md](VLLM_ENDPOINTS.md) for full endpoint configuration details.
+
+1. Open a new terminal and start the LLM server:
    ```bash
-   ollama serve
+   vllm serve Qwen/Qwen2.5-Coder-14B-Instruct --port 8000
    ```
-2. Verify that the required models are pulled and ready:
+2. Open another terminal and start the embedding server:
    ```bash
-   ollama list
+   vllm serve nomic-ai/nomic-embed-text-v1.5 --port 8001
    ```
-   *You should see `qwen2.5-coder:14b`, `qwen2.5vl:7b`, and `nomic-embed-text:latest`.*
-   
-   If any model is missing, pull it manually:
+3. (Optional) Open another terminal for the vision model:
    ```bash
-   ollama pull qwen2.5-coder:14b
-   ollama pull qwen2.5vl:7b
-   ollama pull nomic-embed-text:latest
+   vllm serve Qwen/Qwen2.5-VL-7B-Instruct --port 8002
+   ```
+4. Verify models are loaded:
+   ```bash
+   curl http://127.0.0.1:8000/v1/models
+   curl http://127.0.0.1:8001/v1/models
    ```
 
 ---
@@ -108,4 +113,3 @@ Once the Streamlit UI is open, you can test the following three integrated tabs:
 * **Search & Neighbors Filter:** Search for a specific node by name and adjust the **Search Neighbor Hops** (1 or 2 hops) to explore its immediate neighborhood.
 * **Entity Type Filtering:** Select one or more entity types from the dynamically populated multiselect dropdown to focus on specific categories of nodes.
 * **Density & Performance Controls:** Adjust the **Minimum Connection Degree** slider to filter out leaf nodes and isolate key hubs, and use the **Max Nodes to Render** slider to optimize browser rendering performance.
-
